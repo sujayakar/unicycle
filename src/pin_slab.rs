@@ -137,7 +137,7 @@ impl<T> PinSlab<T> {
     /// let key = slab.insert(42);
     /// assert_eq!(Some(&42), slab.get(key));
     /// ```
-    pub fn get(&mut self, key: usize) -> Option<&T> {
+    pub fn get(&self, key: usize) -> Option<&T> {
         // Safety: We only use this to acquire an immutable reference.
         // The internal calculation guarantees that the key is in bounds.
         unsafe { self.internal_get(key) }
@@ -185,7 +185,7 @@ impl<T> PinSlab<T> {
 
     /// Get a reference to the value at the given slot.
     #[inline(always)]
-    unsafe fn internal_get(&mut self, key: usize) -> Option<&T> {
+    unsafe fn internal_get(&self, key: usize) -> Option<&T> {
         let (slot, offset, len) = calculate_key(key);
         let slot = *self.slots.get(slot)?;
 

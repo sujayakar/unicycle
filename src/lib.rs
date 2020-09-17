@@ -665,6 +665,11 @@ where
     {
         self.slab.get_mut(index)
     }
+
+    /// Get a reference to the future or stream at the given index.
+    pub fn get(&self, index: usize) -> Option<&T> {
+        self.slab.get(index)
+    }
 }
 
 impl<T> Default for Unordered<T, Futures> {
