@@ -178,7 +178,7 @@ pub mod pin_slab;
 mod wake_set;
 mod waker;
 
-/// Our very own homebade `ready!` impl.
+/// Our very own homemade `ready!` impl.
 macro_rules! ready {
     ($expr:expr) => {
         match $expr {
@@ -316,6 +316,8 @@ mod private {
     impl Sealed for super::Streams {}
     #[cfg(feature = "futures-rs")]
     impl Sealed for super::IndexedStreams {}
+
+    impl Sealed for super::IndexedFutures {}
 }
 
 /// Trait implemented by sentinels for the [Unordered] type.
@@ -329,6 +331,11 @@ pub trait Sentinel: self::private::Sealed {}
 pub struct Futures(());
 
 impl Sentinel for Futures {}
+
+/// Sentinel type for futures, where the set returns the future's index.
+pub struct IndexedFutures(());
+
+impl Sentinel for IndexedFutures {}
 
 /// A container for an unordered collection of [Future]s or [Stream]s.
 ///
@@ -521,6 +528,62 @@ where
 
         if slab.is_empty() {
             return Poll::Ready(None);
+        }
+
+        // We need to wake again to take care of the alternate set that was
+        // swapped in.
+        if non_empty {
+            cx.waker().wake_by_ref();
+        }
+
+        Poll::Pending
+    }
+}
+
+/// .
+pub type IndexedFuturesUnordered<T> = Unordered<T, IndexedFutures>;
+
+impl<T> IndexedFuturesUnordered<T> where T: Future {
+    /// Internal poll function for `FuturesUnordered<T>`.
+    pub fn poll_set(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<(usize, T::Output)> {
+        let Self {
+            ref mut slab,
+            ref shared,
+            ref mut alternate,
+            ..
+        } = *self.as_mut();
+
+        // if slab.is_empty() {
+        //     // Nothing to poll, nothing to add. End the stream since we don't have work to do.
+        //     return Poll::Ready(None);
+        // }
+
+        // Safety: We have exclusive access to Unordered, which is the only
+        // implementation that is trying to swap the wake sets.
+        let (non_empty, wake_last) = ready!(unsafe { shared.poll_swap_active(cx, alternate) });
+
+        for index in wake_last.drain() {
+            // NB: Since we defer pollables a little, a future might
+            // have been polled and subsequently removed from the slab.
+            // So we don't treat this as an error here.
+            // If on the other hand it was removed _and_ re-added, we have
+            // a case of a spurious poll. Luckily, that doesn't bother a
+            // future much.
+            let fut = match slab.get_pin_mut(index) {
+                Some(fut) => fut,
+                None => continue,
+            };
+
+            // Construct a new lightweight waker only capable of waking by
+            // reference, with referential access to `shared`.
+            let result = self::waker::poll_with_ref(shared, index, move |cx| fut.poll(cx));
+
+            if let Poll::Ready(result) = result {
+                let removed = slab.remove(index);
+                debug_assert!(removed);
+                cx.waker().wake_by_ref();
+                return Poll::Ready((index, result));
+            }
         }
 
         // We need to wake again to take care of the alternate set that was
