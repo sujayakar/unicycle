@@ -670,6 +670,11 @@ where
     pub fn get(&self, index: usize) -> Option<&T> {
         self.slab.get(index)
     }
+
+    /// Remove the future or stream at the given index, returning `true` if something was removed.
+    pub fn remove(&mut self, index: usize) -> bool {
+        self.slab.remove(index)
+    }
 }
 
 impl<T> Default for Unordered<T, Futures> {
