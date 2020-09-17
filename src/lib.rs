@@ -544,6 +544,11 @@ where
 pub type IndexedFuturesUnordered<T> = Unordered<T, IndexedFutures>;
 
 impl<T> IndexedFuturesUnordered<T> where T: Future {
+    /// .
+    pub fn new() -> Self {
+        Self::new_internal()
+    }
+
     /// Internal poll function for `FuturesUnordered<T>`.
     pub fn poll_set(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<(usize, T::Output)> {
         let Self {
