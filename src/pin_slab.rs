@@ -252,6 +252,31 @@ impl<T> PinSlab<T> {
         true
     }
 
+    /// Method to take out an `Unpin` value
+    pub fn remove_unpin(&mut self, key: usize) -> Option<T> where T: Unpin {
+        let (slot, offset, len) = calculate_key(key);
+        let slot = match self.slots.get_mut(slot) {
+            Some(slot) => *slot,
+            None => return None,
+        };
+        debug_assert!(offset < len);
+        unsafe {
+            let entry = slot.as_ptr().add(offset);
+
+            match &*entry {
+                Entry::Occupied(..) => (),
+                _ => return None,
+            }
+            let value = match mem::replace(&mut *entry, Entry::Vacant(self.next)) {
+                Entry::Occupied(v) => v,
+                _ => panic!("Entried changed to vacant?"),
+            };
+            self.len -= 1;
+            self.next = key;
+            Some(value)
+        }
+    }
+
     /// Clear all available data in the PinSlot.
     ///
     /// # Examples
@@ -417,5 +442,12 @@ mod tests {
         for (_, key) in keys.iter().copied() {
             assert!(slab.get_pin_mut(key).is_none());
         }
+    }
+
+    #[test]
+    fn test_remove_unpin() {
+        let mut slab = PinSlab::new();
+        let key = slab.insert(1);
+        assert_eq!(slab.remove_unpin(key), Some(1));
     }
 }
